@@ -1,0 +1,371 @@
+import React, { useState, useEffect } from 'react'
+import { useSelector, useDispatch } from 'react-redux'
+import { RootState, AppDispatch } from '../../redux/store'
+import { fetchDashboardData } from '../../redux/slices/dashboardSlice'
+import { adAPI } from '../../utils/api'
+import Layout from '../../components/layout/Layout'
+import Dashboard from '../../components/dashboard/Dashboard'
+import toast from 'react-hot-toast'
+import { 
+  ClipboardDocumentListIcon, 
+  ChartBarIcon, 
+  DocumentArrowDownIcon,
+  ChatBubbleLeftRightIcon,
+  CheckIcon,
+  XMarkIcon,
+  TrashIcon
+} from '@heroicons/react/24/outline'
+
+interface Application {
+  id: string
+  clientName: string
+  clientEmail: string
+  show: string
+  date: string
+  duration: number
+  status: 'pending' | 'sent_to_commercial' | 'approved' | 'rejected'
+  cost: number
+  createdAt: string
+}
+
+const AgentDashboard: React.FC = () => {
+  const dispatch = useDispatch<AppDispatch>()
+  const { user } = useSelector((state: RootState) => state.auth)
+  const { data, loading } = useSelector((state: RootState) => state.dashboard)
+  const [applications, setApplications] = useState<Application[]>([])
+  const [applicationsLoading, setApplicationsLoading] = useState(true)
+
+  useEffect(() => {
+    if (user) {
+      dispatch(fetchDashboardData('agent'))
+      loadApplications()
+    }
+  }, [dispatch, user])
+
+  const loadApplications = async () => {
+    setApplicationsLoading(true)
+    try {
+      const response = await adAPI.getApplications({ agentId: user?.id })
+      setApplications(response.data)
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Ошибка загрузки заявок')
+    } finally {
+      setApplicationsLoading(false)
+    }
+  }
+
+  const handleSendToCommercial = async (applicationId: string) => {
+    try {
+      await adAPI.updateApplication(applicationId, { status: 'sent_to_commercial' })
+      toast.success('Заявка отправлена в коммерческий отдел')
+      loadApplications()
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Ошибка отправки заявки')
+    }
+  }
+
+  const handleDeleteApplication = async (applicationId: string) => {
+    if (!confirm('Вы уверены, что хотите удалить эту заявку?')) return
+
+    try {
+      await adAPI.deleteApplication(applicationId)
+      toast.success('Заявка удалена')
+      loadApplications()
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Ошибка удаления заявки')
+    }
+  }
+
+  const stats = [
+    {
+      label: 'Всего заявок',
+      value: data.totalApplications || 0,
+      change: 8,
+      changeType: 'increase' as const,
+    },
+    {
+      label: 'Отправлено в коммерческий отдел',
+      value: data.sentToCommercial || 0,
+      change: 5,
+      changeType: 'increase' as const,
+    },
+    {
+      label: 'Одобренных заявок',
+      value: data.approvedApplications || 0,
+      change: 12,
+      changeType: 'increase' as const,
+    },
+    {
+      label: 'Общая комиссия',
+      value: `${data.totalCommission || 0} ₽`,
+      change: 15,
+      changeType: 'increase' as const,
+    },
+  ]
+
+  const charts = [
+    {
+      type: 'line' as const,
+      title: 'Комиссии по месяцам',
+      data: {
+        labels: ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн'],
+        datasets: [
+          {
+            label: 'Комиссия (₽)',
+            data: data.monthlyCommissions || [15000, 22000, 18000, 25000, 30000, 28000],
+            borderColor: 'rgb(16, 185, 129)',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            fill: true,
+          },
+        ],
+      },
+    },
+    {
+      type: 'bar' as const,
+      title: 'Заявки по статусам',
+      data: {
+        labels: ['На рассмотрении', 'Отправлено', 'Одобрено', 'Отклонено'],
+        datasets: [
+          {
+            label: 'Количество',
+            data: [
+              applications.filter(a => a.status === 'pending').length,
+              applications.filter(a => a.status === 'sent_to_commercial').length,
+              applications.filter(a => a.status === 'approved').length,
+              applications.filter(a => a.status === 'rejected').length,
+            ],
+            backgroundColor: [
+              'rgba(251, 191, 36, 0.8)',
+              'rgba(59, 130, 246, 0.8)',
+              'rgba(16, 185, 129, 0.8)',
+              'rgba(239, 68, 68, 0.8)',
+            ],
+          },
+        ],
+      },
+    },
+  ]
+
+  const getStatusBadge = (status: string) => {
+    const statusConfig = {
+      pending: { color: 'bg-yellow-100 text-yellow-800', text: 'На рассмотрении' },
+      sent_to_commercial: { color: 'bg-blue-100 text-blue-800', text: 'Отправлено' },
+      approved: { color: 'bg-green-100 text-green-800', text: 'Одобрено' },
+      rejected: { color: 'bg-red-100 text-red-800', text: 'Отклонено' },
+    }
+
+    const config = statusConfig[status as keyof typeof statusConfig]
+    return (
+      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${config.color}`}>
+        {config.text}
+      </span>
+    )
+  }
+
+  if (loading) {
+    return (
+      <Layout role="agent">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        </div>
+      </Layout>
+    )
+  }
+
+  return (
+    <Layout role="agent">
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-secondary-900">
+              Добро пожаловать, {user?.name}!
+            </h1>
+            <p className="text-secondary-600">
+              Панель управления рекламного агента
+            </p>
+          </div>
+        </div>
+
+        {/* Dashboard */}
+        <Dashboard title="Статистика" charts={charts} stats={stats} />
+
+        {/* Applications Table */}
+        <div className="bg-white rounded-lg shadow-sm border border-secondary-200">
+          <div className="p-6 border-b border-secondary-200">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-secondary-900">
+                Заявки клиентов
+              </h3>
+              <button
+                onClick={loadApplications}
+                className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+              >
+                Обновить
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6">
+            {applicationsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+              </div>
+            ) : applications.length === 0 ? (
+              <div className="text-center py-8">
+                <ClipboardDocumentListIcon className="h-12 w-12 text-secondary-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-secondary-900 mb-2">
+                  Заявки не найдены
+                </h3>
+                <p className="text-secondary-600">
+                  У вас пока нет заявок от клиентов
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-secondary-200">
+                  <thead className="bg-secondary-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                        ID
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                        Клиент
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                        Шоу
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                        Дата
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                        Статус
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                        Стоимость
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                        Действия
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-secondary-200">
+                    {applications.map((application) => (
+                      <tr key={application.id} className="hover:bg-secondary-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-secondary-900">
+                          #{application.id.slice(-8)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-secondary-900">
+                            {application.clientName}
+                          </div>
+                          <div className="text-sm text-secondary-500">
+                            {application.clientEmail}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
+                          {application.show}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
+                          {new Date(application.date).toLocaleDateString('ru-RU')}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {getStatusBadge(application.status)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
+                          {application.cost.toLocaleString('ru-RU')} ₽
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                          {application.status === 'pending' && (
+                            <button
+                              onClick={() => handleSendToCommercial(application.id)}
+                              className="text-green-600 hover:text-green-900"
+                              title="Отправить в коммерческий отдел"
+                            >
+                              <CheckIcon className="h-5 w-5" />
+                            </button>
+                          )}
+                          {application.status === 'sent_to_commercial' && (
+                            <span className="text-blue-600 text-xs">Отправлено</span>
+                          )}
+                          <button
+                            onClick={() => handleDeleteApplication(application.id)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Удалить заявку"
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <a
+            href="/agent/commissions"
+            className="bg-white rounded-lg shadow-sm border border-secondary-200 p-6 hover:shadow-md transition-shadow duration-200"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="p-3 rounded-lg bg-green-500">
+                <ChartBarIcon className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-secondary-900">
+                  Комиссии
+                </h3>
+                <p className="text-sm text-secondary-600">
+                  Просмотр комиссий и статистики
+                </p>
+              </div>
+            </div>
+          </a>
+
+          <a
+            href="/agent/reports"
+            className="bg-white rounded-lg shadow-sm border border-secondary-200 p-6 hover:shadow-md transition-shadow duration-200"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="p-3 rounded-lg bg-blue-500">
+                <DocumentArrowDownIcon className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-secondary-900">
+                  Отчеты
+                </h3>
+                <p className="text-sm text-secondary-600">
+                  Генерация отчетов для клиентов
+                </p>
+              </div>
+            </div>
+          </a>
+
+          <a
+            href="/agent/chat"
+            className="bg-white rounded-lg shadow-sm border border-secondary-200 p-6 hover:shadow-md transition-shadow duration-200"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="p-3 rounded-lg bg-purple-500">
+                <ChatBubbleLeftRightIcon className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-secondary-900">
+                  Чат
+                </h3>
+                <p className="text-sm text-secondary-600">
+                  Общение с клиентами и отделом
+                </p>
+              </div>
+            </div>
+          </a>
+        </div>
+      </div>
+    </Layout>
+  )
+}
+
+export default AgentDashboard
