@@ -56,8 +56,8 @@ const AccountantDashboard: React.FC = () => {
     setApplicationsLoading(true)
     try {
       const response = await adAPI.getApplications({ 
-        status: 'approved',
-        ...filters 
+        ...filters,
+        status: 'approved'
       })
       setApplications(response.data)
     } catch (error: any) {
@@ -157,7 +157,7 @@ const AccountantDashboard: React.FC = () => {
       title: 'Способы оплаты',
       data: {
         labels: ['Карта', 'Перевод', 'Наличные'],
-        datasets: [
+            datasets: [
           {
             label: 'Количество',
             data: [
@@ -165,11 +165,7 @@ const AccountantDashboard: React.FC = () => {
               applications.filter(a => a.paymentMethod === 'transfer').length,
               applications.filter(a => a.paymentMethod === 'cash').length,
             ],
-            backgroundColor: [
-              'rgba(59, 130, 246, 0.8)',
-              'rgba(16, 185, 129, 0.8)',
-              'rgba(251, 191, 36, 0.8)',
-            ],
+            backgroundColor: 'rgba(59, 130, 246, 0.8)',
           },
         ],
       },

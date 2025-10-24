@@ -30,6 +30,10 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ role }) => {
   const router = useRouter()
   const { sidebarOpen } = useSelector((state: RootState) => state.ui)
+  const { rooms } = useSelector((state: RootState) => state.chat)
+  
+  // Calculate total unread messages
+  const totalUnread = rooms.reduce((sum, room) => sum + (room.unreadCount || 0), 0)
 
   const getNavigationItems = (userRole: string) => {
     const baseItems = [
@@ -55,8 +59,8 @@ const Sidebar: React.FC<SidebarProps> = ({ role }) => {
             icon: DocumentTextIcon,
           },
           {
-            name: 'История заявок',
-            href: `/${userRole}/history`,
+            name: 'Мои заявки',
+            href: `/${userRole}/applications`,
             icon: ClockIcon,
           },
           {
@@ -90,9 +94,10 @@ const Sidebar: React.FC<SidebarProps> = ({ role }) => {
             icon: DocumentArrowDownIcon,
           },
           {
-            name: 'Чат',
+            name: 'Чат с клиентами',
             href: `/${userRole}/chat`,
             icon: ChatBubbleLeftRightIcon,
+            badge: totalUnread > 0 ? totalUnread : undefined,
           },
         ]
 
@@ -100,9 +105,19 @@ const Sidebar: React.FC<SidebarProps> = ({ role }) => {
         return [
           ...baseItems,
           {
+            name: 'Управление шоу',
+            href: `/${userRole}/shows`,
+            icon: PresentationChartBarIcon,
+          },
+          {
+            name: 'Расписание рекламы',
+            href: `/${userRole}/ad-schedule`,
+            icon: CalendarIcon,
+          },
+          {
             name: 'Расписание шоу',
             href: `/${userRole}/schedule`,
-            icon: CalendarIcon,
+            icon: ClockIcon,
           },
           {
             name: 'Заявки от агентов',
@@ -199,11 +214,7 @@ const Sidebar: React.FC<SidebarProps> = ({ role }) => {
   const navigationItems = getNavigationItems(role)
 
   return (
-    <aside
-      className={`${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      } fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0`}
-    >
+    <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg lg:static lg:inset-0">
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-center h-16 px-4 bg-primary-600">
           <h2 className="text-xl font-bold text-white">Меню</h2>
@@ -212,18 +223,28 @@ const Sidebar: React.FC<SidebarProps> = ({ role }) => {
         <nav className="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
           {navigationItems.map((item) => {
             const isActive = router.pathname === item.href
+            const isChatLink = item.href.includes('/chat')
+            const showBadge = isChatLink && totalUnread > 0
+            
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
+                className={`flex items-center justify-between px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
                   isActive
                     ? 'bg-primary-100 text-primary-700 border-r-2 border-primary-500'
                     : 'text-secondary-600 hover:bg-secondary-100 hover:text-secondary-900'
                 }`}
               >
-                <item.icon className="h-5 w-5 mr-3" />
-                {item.name}
+                <div className="flex items-center">
+                  <item.icon className="h-5 w-5 mr-3" />
+                  {item.name}
+                </div>
+                {showBadge && (
+                  <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-500 rounded-full">
+                    {totalUnread}
+                  </span>
+                )}
               </Link>
             )
           })}

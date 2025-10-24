@@ -2,19 +2,22 @@
 -- Run order: schema.sql -> functions.sql -> triggers.sql -> seed.sql
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "citext";
 
 -- Core entities
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name TEXT NOT NULL,
-  email CITEXT UNIQUE NOT NULL,
+  email TEXT UNIQUE NOT NULL,
   password_hash TEXT,
   role TEXT NOT NULL CHECK (role IN ('customer','agent','commercial','accountant','admin','director')),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   bank_details JSONB,
+  phone TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE users ADD COLUMN first_name text; ALTER TABLE users ADD COLUMN middle_name text; ALTER TABLE users ADD COLUMN last_name text;
 
 CREATE TABLE IF NOT EXISTS shows (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -37,7 +40,7 @@ CREATE TABLE IF NOT EXISTS show_schedule (
   UNIQUE (show_id, scheduled_date)
 );
 
-CREATE TYPE application_status AS ENUM ('pending','sent_to_commercial','approved','rejected','paid','overdue');
+CREATE TYPE application_status AS ENUM ('pending','in_progress','sent_to_commercial','approved','rejected','paid','overdue');
 
 CREATE TABLE IF NOT EXISTS applications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -47,6 +50,61 @@ CREATE TABLE IF NOT EXISTS applications (
   scheduled_at TIMESTAMPTZ NOT NULL,
   duration_seconds INT NOT NULL CHECK (duration_seconds BETWEEN 5 AND 300),
   status application_status NOT NULL DEFAULT 'pending',
+  cost NUMERIC(14,2) NOT NULL DEFAULT 0,
+  description TEXT,
+  contact_phone TEXT,
+  payment_method TEXT CHECK (payment_method IN ('card','transfer','cash')),
+  payment_date TIMESTAMPTZ,
+  due_date TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- New workflow tables: pending (on review), approved, rejected
+CREATE TABLE IF NOT EXISTS pending_applications (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  agent_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  show_id UUID NOT NULL REFERENCES shows(id) ON DELETE RESTRICT,
+  scheduled_at TIMESTAMPTZ NOT NULL,
+  duration_seconds INT NOT NULL CHECK (duration_seconds BETWEEN 5 AND 300),
+  status application_status NOT NULL DEFAULT 'pending',
+  cost NUMERIC(14,2) NOT NULL DEFAULT 0,
+  description TEXT,
+  contact_phone TEXT,
+  payment_method TEXT CHECK (payment_method IN ('card','transfer','cash')),
+  payment_date TIMESTAMPTZ,
+  due_date TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS approved_applications (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  agent_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  show_id UUID NOT NULL REFERENCES shows(id) ON DELETE RESTRICT,
+  scheduled_at TIMESTAMPTZ NOT NULL,
+  duration_seconds INT NOT NULL CHECK (duration_seconds BETWEEN 5 AND 300),
+  status application_status NOT NULL DEFAULT 'approved',
+  cost NUMERIC(14,2) NOT NULL DEFAULT 0,
+  description TEXT,
+  contact_phone TEXT,
+  payment_method TEXT CHECK (payment_method IN ('card','transfer','cash')),
+  payment_date TIMESTAMPTZ,
+  due_date TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS rejected_applications (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  customer_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  agent_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  show_id UUID NOT NULL REFERENCES shows(id) ON DELETE RESTRICT,
+  scheduled_at TIMESTAMPTZ NOT NULL,
+  duration_seconds INT NOT NULL CHECK (duration_seconds BETWEEN 5 AND 300),
+  status application_status NOT NULL DEFAULT 'rejected',
   cost NUMERIC(14,2) NOT NULL DEFAULT 0,
   description TEXT,
   contact_phone TEXT,

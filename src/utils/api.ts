@@ -1,7 +1,9 @@
 import axios from 'axios'
 import Cookies from 'js-cookie'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+// Prefer an externally configured backend URL. Default to '/api' so that
+// axios requests target Next.js internal API routes in development.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api'
 
 const api = axios.create({
   baseURL: API_URL,
@@ -9,15 +11,14 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Ensure browser sends cookies for same-origin requests (HttpOnly session cookie)
+  withCredentials: true,
 })
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    const token = Cookies.get('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
+    // Do not attach tokens from JS; server-managed HttpOnly cookie is used.
     return config
   },
   (error) => {
@@ -29,11 +30,7 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid
-      Cookies.remove('token')
-      window.location.href = '/'
-    }
+    // Let calling code handle 401 (e.g., dispatch logout/loadUser failure).
     return Promise.reject(error)
   }
 )
@@ -42,7 +39,7 @@ api.interceptors.response.use(
 export const authAPI = {
   login: (credentials: { email: string; password: string }) =>
     api.post('/auth/login', credentials),
-  register: (userData: { name: string; email: string; password: string }) =>
+  register: (userData: { first_name: string; middle_name?: string; last_name: string; phone?: string; email: string; password: string }) =>
     api.post('/auth/register', userData),
   getProfile: () => api.get('/auth/me'),
   updateProfile: (data: any) => api.put('/auth/profile', data),
@@ -57,10 +54,11 @@ export const dashboardAPI = {
 export const adAPI = {
   calculateCost: (data: { seconds: number; showId: string }) =>
     api.post('/ads/calculate-cost', data),
-  createApplication: (data: any) => api.post('/ads/applications', data),
-  getApplications: (params?: any) => api.get('/ads/applications', { params }),
-  updateApplication: (id: string, data: any) => api.put(`/ads/applications/${id}`, data),
-  deleteApplication: (id: string) => api.delete(`/ads/applications/${id}`),
+  createApplication: (data: any) => api.post('/applications', data),
+  getApplications: (params?: any) => api.get('/applications', { params }),
+  updateApplication: (id: string, data: any) => api.put(`/applications/${id}`, data),
+  deleteApplication: (id: string) => api.delete(`/applications/${id}`),
+  getCommissions: (params?: any) => api.get('/commissions', { params }),
 }
 
 export const showAPI = {
@@ -81,9 +79,9 @@ export const userAPI = {
 
 export const reportAPI = {
   generateReport: (type: string, filters: any) =>
-    api.post(`/reports/generate/${type}`, filters),
-  downloadReport: (reportId: string) =>
-    api.get(`/reports/download/${reportId}`, { responseType: 'blob' }),
+    api.post(`/reports/generate`, { ...filters, type }),
+  downloadReport: (reportId: string, params: any) =>
+    api.get(`/reports/download/${reportId}`, { params, responseType: 'blob' }),
 }
 
 export const chatAPI = {

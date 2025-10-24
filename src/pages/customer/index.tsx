@@ -10,6 +10,8 @@ const CustomerDashboard: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>()
   const { user } = useSelector((state: RootState) => state.auth)
   const { data, loading } = useSelector((state: RootState) => state.dashboard)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(5)
 
   useEffect(() => {
     if (user) {
@@ -18,30 +20,10 @@ const CustomerDashboard: React.FC = () => {
   }, [dispatch, user])
 
   const stats = [
-    {
-      label: 'Всего заявок',
-      value: data.totalApplications || 0,
-      change: 12,
-      changeType: 'increase' as const,
-    },
-    {
-      label: 'Одобренных заявок',
-      value: data.approvedApplications || 0,
-      change: 8,
-      changeType: 'increase' as const,
-    },
-    {
-      label: 'Общая стоимость',
-      value: `${data.totalCost || 0} ₽`,
-      change: 15,
-      changeType: 'increase' as const,
-    },
-    {
-      label: 'Активных заявок',
-      value: data.activeApplications || 0,
-      change: -2,
-      changeType: 'decrease' as const,
-    },
+    { label: 'Всего заявок', value: data.totalApplications || 0 },
+    { label: 'Одобренных заявок', value: data.approvedApplications || 0 },
+    { label: 'Одобрено на сумму', value: `${data.totalCost || 0} ₽` },
+    { label: 'Активных заявок', value: data.activeApplications || 0 },
   ]
 
   const charts = [
@@ -49,11 +31,20 @@ const CustomerDashboard: React.FC = () => {
       type: 'line' as const,
       title: 'Заявки по месяцам',
       data: {
-        labels: ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн'],
+        labels: (() => {
+          const count = (data.monthlyApplications && data.monthlyApplications.length) || 6
+          const labels: string[] = []
+          const now = new Date()
+          for (let i = count - 1; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+            labels.push(d.toLocaleString('ru-RU', { month: 'short' }))
+          }
+          return labels
+        })(),
         datasets: [
           {
             label: 'Заявки',
-            data: data.monthlyApplications || [12, 19, 3, 5, 2, 3],
+            data: data.monthlyApplications || [],
             borderColor: 'rgb(59, 130, 246)',
             backgroundColor: 'rgba(59, 130, 246, 0.1)',
             fill: true,
@@ -65,11 +56,11 @@ const CustomerDashboard: React.FC = () => {
       type: 'bar' as const,
       title: 'Стоимость по шоу',
       data: {
-        labels: ['Утреннее шоу', 'Дневное шоу', 'Вечернее шоу', 'Ночное шоу'],
+        labels: (data.costByShow || []).map((c: any) => c.show),
         datasets: [
           {
             label: 'Стоимость (₽)',
-            data: data.costByShow || [12000, 19000, 30000, 8000],
+            data: (data.costByShow || []).map((c: any) => c.cost),
             backgroundColor: 'rgba(16, 185, 129, 0.8)',
           },
         ],
@@ -100,6 +91,56 @@ const CustomerDashboard: React.FC = () => {
       color: 'bg-purple-500',
     },
   ]
+
+  // Pagination
+  const recentApplications = data.recentApplications || []
+  const totalPages = Math.ceil(recentApplications.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedApplications = recentApplications.slice(startIndex, endIndex)
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'approved':
+        return 'Одобрено'
+      case 'pending':
+        return 'Ожидает агента'
+      case 'in_progress':
+        return 'В работе'
+      case 'sent_to_commercial':
+        return 'В работе'
+      case 'rejected':
+        return 'Отклонено'
+      case 'paid':
+        return 'Оплачено'
+      case 'overdue':
+        return 'Просрочено'
+      default:
+        return status
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'approved':
+      case 'paid':
+        return 'bg-green-100 text-green-800'
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800'
+      case 'in_progress':
+      case 'sent_to_commercial':
+        return 'bg-blue-100 text-blue-800'
+      case 'rejected':
+      case 'overdue':
+        return 'bg-red-100 text-red-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
 
   if (loading) {
     return (
@@ -155,70 +196,115 @@ const CustomerDashboard: React.FC = () => {
 
         {/* Recent Applications */}
         <div className="bg-white rounded-lg shadow-sm border border-secondary-200">
-          <div className="p-6 border-b border-secondary-200">
+          <div className="p-6 border-b border-secondary-200 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-secondary-900">
               Последние заявки
             </h3>
+            {recentApplications.length > 0 && (
+              <p className="text-sm text-gray-600">
+                Показано {startIndex + 1}-{Math.min(endIndex, recentApplications.length)} из {recentApplications.length}
+              </p>
+            )}
           </div>
           <div className="p-6">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-secondary-200">
-                <thead className="bg-secondary-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
-                      Шоу
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
-                      Дата
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
-                      Длительность
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
-                      Статус
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
-                      Стоимость
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-secondary-200">
-                  {(data.recentApplications || []).map((application: any, index: number) => (
-                    <tr key={index}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-secondary-900">
-                        {application.show}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
-                        {new Date(application.date).toLocaleDateString('ru-RU')}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
-                        {application.duration} сек
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            application.status === 'approved'
-                              ? 'bg-green-100 text-green-800'
-                              : application.status === 'pending'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {application.status === 'approved'
-                            ? 'Одобрено'
-                            : application.status === 'pending'
-                            ? 'На рассмотрении'
-                            : 'Отклонено'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
-                        {application.cost} ₽
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {recentApplications.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <DocumentTextIcon className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                <p>У вас пока нет заявок</p>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-secondary-200">
+                    <thead className="bg-secondary-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                          Шоу
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                          Дата
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                          Длительность
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                          Статус
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-secondary-500 uppercase tracking-wider">
+                          Стоимость
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-secondary-200">
+                      {paginatedApplications.map((application: any, index: number) => (
+                        <tr key={index}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-secondary-900">
+                            {application.show}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
+                            {new Date(application.date).toLocaleDateString('ru-RU')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
+                            {application.duration} сек
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(application.status)}`}>
+                              {getStatusText(application.status)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary-500">
+                            {application.cost} ₽
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        ← Назад
+                      </button>
+                      
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                          <button
+                            key={page}
+                            onClick={() => handlePageChange(page)}
+                            className={`px-3 py-2 text-sm font-medium rounded-md ${
+                              currentPage === page
+                                ? 'bg-primary-600 text-white'
+                                : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Вперед →
+                      </button>
+                    </div>
+
+                    <div className="text-sm text-gray-600">
+                      Страница {currentPage} из {totalPages}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>

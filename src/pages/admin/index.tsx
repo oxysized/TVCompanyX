@@ -155,18 +155,11 @@ const AdminDashboard: React.FC = () => {
       title: 'Пользователи по ролям',
       data: {
         labels: ['Заказчики', 'Агенты', 'Коммерческий', 'Бухгалтер', 'Админ', 'Директор'],
-        datasets: [
+            datasets: [
           {
             label: 'Количество',
             data: data.usersByRole || [25, 8, 3, 2, 1, 1],
-            backgroundColor: [
-              'rgba(59, 130, 246, 0.8)',
-              'rgba(16, 185, 129, 0.8)',
-              'rgba(251, 191, 36, 0.8)',
-              'rgba(139, 92, 246, 0.8)',
-              'rgba(239, 68, 68, 0.8)',
-              'rgba(156, 163, 175, 0.8)',
-            ],
+            backgroundColor: 'rgba(59, 130, 246, 0.8)',
           },
         ],
       },

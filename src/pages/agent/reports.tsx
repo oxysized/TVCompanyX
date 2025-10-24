@@ -8,9 +8,13 @@ import DatePicker from 'react-datepicker'
 import 'react-datepicker/dist/react-datepicker.css'
 
 interface ReportFormData {
-  clientId?: string
-  startDate: Date
-  endDate: Date
+  clientEmail: string
+  periodType: 'custom' | 'month' | 'quarter' | 'year'
+  month?: number
+  quarter?: number
+  year: number
+  startDate?: Date
+  endDate?: Date
   format: 'pdf' | 'excel'
   includeCharts: boolean
 }
@@ -36,37 +40,79 @@ const ReportsPage: React.FC = () => {
     formState: { errors },
   } = useForm<ReportFormData>({
     defaultValues: {
-      startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-      endDate: new Date(),
+      clientEmail: '',
+      periodType: 'month',
+      month: new Date().getMonth() + 1,
+      quarter: Math.floor(new Date().getMonth() / 3) + 1,
+      year: new Date().getFullYear(),
       format: 'pdf',
-      includeCharts: true,
+      includeCharts: false,
     },
   })
 
   const watchedFormat = watch('format')
+  const watchedPeriodType = watch('periodType')
+  const watchedYear = watch('year')
+  const watchedMonth = watch('month')
+  const watchedQuarter = watch('quarter')
 
   const onSubmit = async (data: ReportFormData) => {
     setGenerating(true)
     try {
-      const reportData = {
-        ...data,
-        startDate: data.startDate.toISOString(),
-        endDate: data.endDate.toISOString(),
+      // Calculate dates based on period type
+      let startDate: Date
+      let endDate: Date
+      let reportName: string
+
+      if (data.periodType === 'month' && data.month) {
+        startDate = new Date(data.year, data.month - 1, 1)
+        endDate = new Date(data.year, data.month, 0, 23, 59, 59)
+        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+        reportName = `Отчет за ${monthNames[data.month - 1]} ${data.year}`
+      } else if (data.periodType === 'quarter' && data.quarter) {
+        const quarterStartMonth = (data.quarter - 1) * 3
+        startDate = new Date(data.year, quarterStartMonth, 1)
+        endDate = new Date(data.year, quarterStartMonth + 3, 0, 23, 59, 59)
+        reportName = `Отчет за ${data.quarter} квартал ${data.year}`
+      } else if (data.periodType === 'year') {
+        startDate = new Date(data.year, 0, 1)
+        endDate = new Date(data.year, 11, 31, 23, 59, 59)
+        reportName = `Годовой отчет за ${data.year}`
+      } else {
+        // custom period
+        if (!data.startDate || !data.endDate) {
+          toast.error('Укажите даты периода')
+          setGenerating(false)
+          return
+        }
+        startDate = data.startDate
+        endDate = data.endDate
+        reportName = `Отчет за ${startDate.toLocaleDateString('ru-RU')} - ${endDate.toLocaleDateString('ru-RU')}`
       }
 
-      const response = await reportAPI.generateReport('client', reportData)
+      const reportData = {
+        clientEmail: data.clientEmail,
+        periodType: data.periodType,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        format: data.format,
+        includeCharts: data.includeCharts,
+      }
+
+      const response = await reportAPI.generateReport('agent', reportData)
       
       // Add to reports list
       const newReport: Report = {
         id: response.data.id,
-        name: `Отчет за ${data.startDate.toLocaleDateString('ru-RU')} - ${data.endDate.toLocaleDateString('ru-RU')}`,
-        type: 'client',
+        name: reportName,
+        type: 'agent',
         createdAt: new Date().toISOString(),
-        status: 'generating',
+        status: 'ready', // Mark as ready immediately since we generate on demand
+        downloadUrl: `/api/reports/download/${response.data.id}?format=${data.format}&clientEmail=${encodeURIComponent(data.clientEmail)}&startDate=${encodeURIComponent(startDate.toISOString())}&endDate=${encodeURIComponent(endDate.toISOString())}`
       }
       
       setReports(prev => [newReport, ...prev])
-      toast.success('Отчет поставлен в очередь на генерацию')
+      toast.success('Отчет готов к скачиванию')
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Ошибка генерации отчета')
     } finally {
@@ -74,22 +120,16 @@ const ReportsPage: React.FC = () => {
     }
   }
 
-  const handleDownload = async (reportId: string) => {
+  const handleDownload = async (report: Report) => {
+    if (!report.downloadUrl) {
+      toast.error('URL для скачивания не найден')
+      return
+    }
+
     try {
-      const response = await reportAPI.downloadReport(reportId)
-      
-      // Create blob and download
-      const blob = new Blob([response.data])
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `report_${reportId}.${watchedFormat}`
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-      
-      toast.success('Отчет загружен')
+      // Open PDF report in new tab for printing
+      window.open(report.downloadUrl, '_blank')
+      toast.success('Отчет открыт в новой вкладке. Используйте Ctrl+P для печати/сохранения в PDF')
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Ошибка загрузки отчета')
     }
@@ -133,71 +173,149 @@ const ReportsPage: React.FC = () => {
             </h2>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              {/* Client Email */}
               <div>
-                <label htmlFor="clientId" className="block text-sm font-medium text-secondary-700 mb-1">
-                  Клиент (опционально)
+                <label htmlFor="clientEmail" className="block text-sm font-medium text-secondary-700 mb-1">
+                  Email клиента
                 </label>
                 <input
-                  {...register('clientId')}
-                  type="text"
-                  id="clientId"
+                  {...register('clientEmail', { 
+                    required: 'Введите email клиента',
+                    pattern: {
+                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                      message: 'Неверный формат email'
+                    }
+                  })}
+                  type="email"
+                  id="clientEmail"
                   className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="ID клиента или оставьте пустым для всех"
+                  placeholder="client@example.com"
                 />
+                {errors.clientEmail && (
+                  <p className="mt-1 text-sm text-red-600">{errors.clientEmail.message}</p>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="startDate" className="block text-sm font-medium text-secondary-700 mb-1">
-                    Дата начала
-                  </label>
-                  <DatePicker
-                    selected={watch('startDate')}
-                    onChange={(date) => setValue('startDate', date || new Date())}
-                    dateFormat="dd.MM.yyyy"
-                    className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                    placeholderText="Выберите дату"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="endDate" className="block text-sm font-medium text-secondary-700 mb-1">
-                    Дата окончания
-                  </label>
-                  <DatePicker
-                    selected={watch('endDate')}
-                    onChange={(date) => setValue('endDate', date || new Date())}
-                    dateFormat="dd.MM.yyyy"
-                    className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-                    placeholderText="Выберите дату"
-                  />
-                </div>
-              </div>
-
+              {/* Period Type */}
               <div>
-                <label htmlFor="format" className="block text-sm font-medium text-secondary-700 mb-1">
-                  Формат отчета
+                <label htmlFor="periodType" className="block text-sm font-medium text-secondary-700 mb-1">
+                  Тип периода
                 </label>
                 <select
-                  {...register('format', { required: 'Выберите формат' })}
-                  id="format"
+                  {...register('periodType', { required: 'Выберите тип периода' })}
+                  id="periodType"
                   className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
                 >
-                  <option value="pdf">PDF</option>
-                  <option value="excel">Excel</option>
+                  <option value="month">Месяц</option>
+                  <option value="quarter">Квартал</option>
+                  <option value="year">Год</option>
+                  <option value="custom">Произвольный период</option>
                 </select>
               </div>
 
-              <div className="flex items-center">
-                <input
-                  {...register('includeCharts')}
-                  type="checkbox"
-                  id="includeCharts"
-                  className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-secondary-300 rounded"
-                />
-                <label htmlFor="includeCharts" className="ml-2 block text-sm text-secondary-700">
-                  Включить графики и диаграммы
+              {/* Year selector (shown for all types) */}
+              <div>
+                <label htmlFor="year" className="block text-sm font-medium text-secondary-700 mb-1">
+                  Год
                 </label>
+                <select
+                  {...register('year', { required: 'Выберите год' })}
+                  id="year"
+                  className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                >
+                  {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Month selector (shown only for month type) */}
+              {watchedPeriodType === 'month' && (
+                <div>
+                  <label htmlFor="month" className="block text-sm font-medium text-secondary-700 mb-1">
+                    Месяц
+                  </label>
+                  <select
+                    {...register('month', { required: 'Выберите месяц' })}
+                    id="month"
+                    className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value={1}>Январь</option>
+                    <option value={2}>Февраль</option>
+                    <option value={3}>Март</option>
+                    <option value={4}>Апрель</option>
+                    <option value={5}>Май</option>
+                    <option value={6}>Июнь</option>
+                    <option value={7}>Июль</option>
+                    <option value={8}>Август</option>
+                    <option value={9}>Сентябрь</option>
+                    <option value={10}>Октябрь</option>
+                    <option value={11}>Ноябрь</option>
+                    <option value={12}>Декабрь</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Quarter selector (shown only for quarter type) */}
+              {watchedPeriodType === 'quarter' && (
+                <div>
+                  <label htmlFor="quarter" className="block text-sm font-medium text-secondary-700 mb-1">
+                    Квартал
+                  </label>
+                  <select
+                    {...register('quarter', { required: 'Выберите квартал' })}
+                    id="quarter"
+                    className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value={1}>1 квартал (Январь - Март)</option>
+                    <option value={2}>2 квартал (Апрель - Июнь)</option>
+                    <option value={3}>3 квартал (Июль - Сентябрь)</option>
+                    <option value={4}>4 квартал (Октябрь - Декабрь)</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Custom date range (shown only for custom type) */}
+              {watchedPeriodType === 'custom' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="startDate" className="block text-sm font-medium text-secondary-700 mb-1">
+                      Дата начала
+                    </label>
+                    <DatePicker
+                      selected={watch('startDate')}
+                      onChange={(date) => setValue('startDate', date || undefined)}
+                      dateFormat="dd.MM.yyyy"
+                      className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                      placeholderText="Выберите дату"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="endDate" className="block text-sm font-medium text-secondary-700 mb-1">
+                      Дата окончания
+                    </label>
+                    <DatePicker
+                      selected={watch('endDate')}
+                      onChange={(date) => setValue('endDate', date || undefined)}
+                      dateFormat="dd.MM.yyyy"
+                      className="w-full px-3 py-2 border border-secondary-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                      placeholderText="Выберите дату"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-secondary-700 mb-1">
+                  Формат отчета
+                </label>
+                <div className="flex items-center space-x-2">
+                  <div className="px-3 py-2 bg-secondary-100 border border-secondary-300 rounded-md text-secondary-700">
+                    PDF (откроется для печати)
+                  </div>
+                  <input type="hidden" {...register('format')} value="pdf" />
+                </div>
               </div>
 
               <button
@@ -332,7 +450,7 @@ const ReportsPage: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           {report.status === 'ready' && (
                             <button
-                              onClick={() => handleDownload(report.id)}
+                              onClick={() => handleDownload(report)}
                               className="text-primary-600 hover:text-primary-900"
                             >
                               Скачать

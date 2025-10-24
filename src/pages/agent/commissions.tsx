@@ -17,6 +17,9 @@ const CommissionsPage: React.FC = () => {
   const [commissionData, setCommissionData] = useState<CommissionData[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedPeriod, setSelectedPeriod] = useState<'month' | 'quarter' | 'year'>('month')
+  const [totalCommission, setTotalCommission] = useState(0)
+  const [totalApplications, setTotalApplications] = useState(0)
+  const [approvedApplications, setApprovedApplications] = useState(0)
 
   useEffect(() => {
     loadCommissionData()
@@ -25,16 +28,38 @@ const CommissionsPage: React.FC = () => {
   const loadCommissionData = async () => {
     setLoading(true)
     try {
-      // Mock data - replace with actual API call
-      const mockData: CommissionData[] = [
-        { month: 'Январь', amount: 15000, applications: 5, percentage: 5 },
-        { month: 'Февраль', amount: 22000, applications: 8, percentage: 5 },
-        { month: 'Март', amount: 18000, applications: 6, percentage: 5 },
-        { month: 'Апрель', amount: 25000, applications: 10, percentage: 5 },
-        { month: 'Май', amount: 30000, applications: 12, percentage: 5 },
-        { month: 'Июнь', amount: 28000, applications: 11, percentage: 5 },
-      ]
-      setCommissionData(mockData)
+      // Fetch dashboard data for agent - includes commission calculations
+      const dashboardResp = await fetch('/api/dashboard/agent', { credentials: 'same-origin' })
+      if (!dashboardResp.ok) throw new Error('Failed to load dashboard data')
+      const dashboardData = await dashboardResp.json()
+      
+      // Set totals from dashboard
+      setTotalCommission(dashboardData.totalCommission || 0)
+      setTotalApplications(dashboardData.totalApplications || 0)
+      setApprovedApplications(dashboardData.approvedApplications || 0)
+      
+      // Build commission data from monthly commissions
+      const monthlyCommissions = dashboardData.monthlyCommissions || []
+      
+      // Generate actual month names (last 6 months)
+      const months = []
+      const now = new Date()
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+        const monthName = date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+        months.push(monthName)
+      }
+      
+      const percentDefault = 10 // 10% commission rate
+      
+      const data: CommissionData[] = months.map((month, index) => ({
+        month,
+        amount: monthlyCommissions[index] || 0,
+        applications: 0, // We'll calculate from approved applications
+        percentage: percentDefault,
+      }))
+      
+      setCommissionData(data)
     } catch (error) {
       console.error('Error loading commission data:', error)
     } finally {
@@ -42,32 +67,30 @@ const CommissionsPage: React.FC = () => {
     }
   }
 
-  const totalCommission = commissionData.reduce((sum, item) => sum + item.amount, 0)
-  const totalApplications = commissionData.reduce((sum, item) => sum + item.applications, 0)
-  const averageCommission = totalApplications > 0 ? totalCommission / totalApplications : 0
+  const averageCommission = approvedApplications > 0 ? totalCommission / approvedApplications : 0
 
   const stats = [
     {
       label: 'Общая комиссия',
-      value: `${totalCommission.toLocaleString('ru-RU')} ₽`,
+      value: `${totalCommission.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`,
       change: 12,
       changeType: 'increase' as const,
     },
     {
-      label: 'Количество заявок',
-      value: totalApplications,
+      label: 'Одобренных заявок',
+      value: approvedApplications,
       change: 8,
       changeType: 'increase' as const,
     },
     {
       label: 'Средняя комиссия',
-      value: `${averageCommission.toLocaleString('ru-RU')} ₽`,
+      value: `${averageCommission.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`,
       change: 5,
       changeType: 'increase' as const,
     },
     {
       label: 'Процент комиссии',
-      value: '5%',
+      value: '10%',
       change: 0,
       changeType: 'increase' as const,
     },
@@ -221,7 +244,7 @@ const CommissionsPage: React.FC = () => {
             Информация о комиссиях
           </h3>
           <div className="text-sm text-blue-800 space-y-2">
-            <p>• Комиссия составляет 5% от стоимости одобренных заявок</p>
+            <p>• Комиссия составляет 10% от стоимости одобренных заявок</p>
             <p>• Комиссия начисляется после одобрения заявки коммерческим отделом</p>
             <p>• Выплата комиссий производится ежемесячно</p>
             <p>• Подробную информацию о выплатах можно получить у бухгалтерии</p>

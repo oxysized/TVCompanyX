@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '../../redux/store'
 import { loadUser } from '../../redux/slices/authSlice'
 import Header from '../layout/Header'
 import Sidebar from '../layout/Sidebar'
+import dynamic from 'next/dynamic'
 import { Toaster } from 'react-hot-toast'
 import socketService from '../../utils/socket'
 
@@ -16,13 +17,28 @@ const Layout: React.FC<LayoutProps> = ({ children, role }) => {
   const dispatch = useDispatch<AppDispatch>()
   const { isAuthenticated, user, loading, isTestUser } = useSelector((state: RootState) => state.auth)
   const { sidebarOpen } = useSelector((state: RootState) => state.ui)
+  const [dbConnected, setDbConnected] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  const DatabaseStatus = dynamic(() => import('../DatabaseStatus'), { ssr: false })
 
   useEffect(() => {
+    setMounted(true)
     // Skip server auth load in demo mode
     if (!isTestUser) {
       dispatch(loadUser())
     }
   }, [dispatch, isTestUser])
+
+  // Redirect to home only after we've performed the initial auth check.
+  // This prevents a flash/redirect on page reload (F5) while loadUser is running.
+  const { initialized } = useSelector((state: RootState) => state.auth)
+
+  useEffect(() => {
+    if (initialized && !isAuthenticated) {
+      window.location.href = '/'
+    }
+  }, [initialized, isAuthenticated])
 
   useEffect(() => {
     // Initialize socket connection when user is authenticated
@@ -40,6 +56,14 @@ const Layout: React.FC<LayoutProps> = ({ children, role }) => {
       }
     }
   }, [isAuthenticated, user, isTestUser])
+
+  // Prevent hydration mismatch: gate by mounted
+  if (!mounted) return null
+
+  // Show database status check for authenticated users (client-only)
+  if (isAuthenticated && !dbConnected) {
+    return <DatabaseStatus onStatusChange={setDbConnected} />
+  }
 
   if (loading) {
     return (
@@ -70,11 +94,7 @@ const Layout: React.FC<LayoutProps> = ({ children, role }) => {
       <div className="flex">
         <Sidebar role={userRole} />
         
-        <main
-          className={`flex-1 transition-all duration-300 ${
-            sidebarOpen ? 'lg:ml-64' : 'lg:ml-0'
-          }`}
-        >
+        <main className="flex-1">
           <div className="p-6">
             {children}
           </div>

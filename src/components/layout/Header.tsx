@@ -1,11 +1,10 @@
 import React from 'react'
 import { useSelector, useDispatch } from 'react-redux'
+import { useRouter } from 'next/router'
 import { RootState, AppDispatch } from '../../redux/store'
 import { logout } from '../../redux/slices/authSlice'
-import { toggleSidebar } from '../../redux/slices/uiSlice'
+import NotificationBell from '../NotificationBell'
 import { 
-  Bars3Icon, 
-  BellIcon, 
   UserCircleIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon
@@ -14,14 +13,12 @@ import {
 const Header: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>()
   const { user } = useSelector((state: RootState) => state.auth)
-  const { sidebarOpen } = useSelector((state: RootState) => state.ui)
 
+  const router = useRouter()
+  
   const handleLogout = () => {
     dispatch(logout())
-  }
-
-  const toggleSidebarHandler = () => {
-    dispatch(toggleSidebar())
+    router.push('/')
   }
 
   const getRoleDisplayName = (role: string) => {
@@ -40,30 +37,16 @@ const Header: React.FC = () => {
     <header className="bg-white shadow-sm border-b border-secondary-200">
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center space-x-4">
-          <button
-            onClick={toggleSidebarHandler}
-            className="p-2 rounded-md text-secondary-600 hover:text-secondary-900 hover:bg-secondary-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-            aria-label="Toggle sidebar"
-          >
-            <Bars3Icon className="h-6 w-6" />
-          </button>
-          
-          <div className="hidden sm:block">
+          <div className="block">
             <h1 className="text-xl font-semibold text-secondary-900">
               TV Company Ad System
             </h1>
-            <p className="text-sm text-secondary-600">
-              {user && getRoleDisplayName(user.role)}
-            </p>
           </div>
         </div>
 
         <div className="flex items-center space-x-4">
           {/* Notifications */}
-          <button className="p-2 rounded-md text-secondary-600 hover:text-secondary-900 hover:bg-secondary-100 focus:outline-none focus:ring-2 focus:ring-primary-500 relative">
-            <BellIcon className="h-6 w-6" />
-            <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
-          </button>
+          <NotificationBell />
 
           {/* User Menu */}
           <div className="relative group">

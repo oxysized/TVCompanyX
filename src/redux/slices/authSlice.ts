@@ -1,5 +1,4 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit'
-import { jwtDecode } from 'jwt-decode'
 import Cookies from 'js-cookie'
 import api from '../../utils/api'
 
@@ -17,53 +16,90 @@ interface AuthState {
   token: string | null
   isAuthenticated: boolean
   loading: boolean
+  // true once we've attempted to load the current user (success or failure)
+  initialized: boolean
   error: string | null
   isTestUser?: boolean
 }
 
-const initialState: AuthState = {
-  user: null,
-  token: null,
-  isAuthenticated: false,
-  loading: false,
-  error: null,
-  isTestUser: false,
-}
+// Load initial state from localStorage
+const loadInitialState = (): AuthState => {
+  if (typeof window === 'undefined') {
+    return {
+      user: null,
+      token: null,
+      isAuthenticated: false,
+      loading: true,
+      initialized: false,
+      error: null,
+      isTestUser: false,
+    };
+  }
+
+  const isTestUser = localStorage.getItem('isTestUser') === 'true';
+  const testUserRole = localStorage.getItem('testUserRole');
+  const token = localStorage.getItem('token');
+
+  if (isTestUser && testUserRole) {
+    return {
+      user: {
+        id: 'test-user',
+        name: 'Demo User',
+        email: 'demo@example.com',
+        role: testUserRole as User['role'],
+      },
+      token: null,
+      isAuthenticated: true,
+      loading: false,
+      initialized: true,
+      error: null,
+      isTestUser: true,
+    };
+  }
+
+  return {
+    user: null,
+    token: token || null,
+    isAuthenticated: false,
+    // По умолчанию на клиенте не считаем, что мы загружаемся — это предотвращает
+    // блокировку форм входа/регистрации до вызова loadUser.
+    loading: false,
+    initialized: false,
+    error: null,
+    isTestUser: false,
+  };
+};
+
+const initialState: AuthState = loadInitialState();
 
 // Async thunks
 export const loginUser = createAsyncThunk(
   'auth/login',
   async (credentials: { email: string; password: string }, { rejectWithValue }) => {
     try {
-      const response = await api.post('/auth/login', credentials)
-      const { token } = response.data
-      
-      // Decode token to get user info
-      const decoded = jwtDecode(token) as any
-      
-      // Store token in cookie
-      Cookies.set('token', token, { expires: 7 })
-      
-      return { token, user: decoded.user }
+      const response = await (await import('../../utils/api')).authAPI.login(credentials)
+      const data = response.data
+      const { token, user } = data
+      return { token, user }
     } catch (error: any) {
-      return rejectWithValue(error.response?.data?.message || 'Login failed')
+      // axios error handling
+      const message = error?.response?.data?.error || error.message || 'Login failed'
+      return rejectWithValue(message)
     }
   }
 )
 
 export const registerUser = createAsyncThunk(
   'auth/register',
-  async (userData: { name: string; email: string; password: string }, { rejectWithValue }) => {
+  async (userData: { first_name: string; middle_name?: string; last_name: string; phone?: string; email: string; password: string }, { rejectWithValue }) => {
     try {
-      const response = await api.post('/auth/register', userData)
-      const { token } = response.data
-      
-      const decoded = jwtDecode(token) as any
-      Cookies.set('token', token, { expires: 7 })
-      
-      return { token, user: decoded.user }
+      const response = await (await import('../../utils/api')).authAPI.register(userData)
+      const data = response.data
+      const { token, user } = data
+      return { token, user }
     } catch (error: any) {
-      return rejectWithValue(error.response?.data?.message || 'Registration failed')
+      const message = error?.response?.data?.error || error.message || 'Registration failed'
+      return rejectWithValue(message)
     }
   }
 )
@@ -72,15 +108,8 @@ export const loadUser = createAsyncThunk(
   'auth/loadUser',
   async (_, { rejectWithValue }) => {
     try {
-      const token = Cookies.get('token')
-      if (!token) {
-        throw new Error('No token found')
-      }
-      
-      const response = await api.get('/auth/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      
+      const { authAPI } = await import('../../utils/api')
+      const response = await authAPI.getProfile()
       return response.data
     } catch (error: any) {
       Cookies.remove('token')
@@ -93,8 +122,9 @@ export const updateProfile = createAsyncThunk(
   'auth/updateProfile',
   async (profileData: Partial<User>, { rejectWithValue }) => {
     try {
-      const response = await api.put('/auth/profile', profileData)
-      return response.data
+  const { authAPI } = await import('../../utils/api')
+  const response = await authAPI.updateProfile(profileData)
+  return response.data
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Profile update failed')
     }
@@ -110,7 +140,16 @@ const authSlice = createSlice({
       state.token = null
       state.isAuthenticated = false
       state.isTestUser = false
+      state.loading = false
+      state.error = null
       Cookies.remove('token')
+      
+      // Clear localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('isTestUser');
+        localStorage.removeItem('testUserRole');
+        localStorage.removeItem('token');
+      }
     },
     clearError: (state) => {
       state.error = null
@@ -128,6 +167,12 @@ const authSlice = createSlice({
       state.loading = false
       state.error = null
       state.isTestUser = true
+      
+      // Save to localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('isTestUser', 'true');
+        localStorage.setItem('testUserRole', role);
+      }
     },
   },
   extraReducers: (builder) => {
@@ -167,17 +212,20 @@ const authSlice = createSlice({
       // Load user
       .addCase(loadUser.pending, (state) => {
         state.loading = true
+        state.initialized = false
       })
       .addCase(loadUser.fulfilled, (state, action) => {
         state.loading = false
         state.isAuthenticated = true
         state.user = action.payload
+        state.initialized = true
         state.error = null
       })
       .addCase(loadUser.rejected, (state, action) => {
         state.loading = false
         state.isAuthenticated = false
         state.user = null
+        state.initialized = true
         state.error = action.payload as string
       })
       // Update profile

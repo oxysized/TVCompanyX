@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { adAPI } from '../utils/api'
-import socketService from '../utils/socket'
+import { adAPI } from '../../utils/api'
+import socketService from '../../utils/socket'
 import { 
   PlayIcon, 
   CalendarIcon, 
