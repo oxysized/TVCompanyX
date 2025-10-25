@@ -64,6 +64,11 @@ const Sidebar: React.FC<SidebarProps> = ({ role }) => {
             icon: ClockIcon,
           },
           {
+            name: 'Документы',
+            href: `/${userRole}/documents`,
+            icon: DocumentTextIcon,
+          },
+          {
             name: 'Профиль',
             href: `/${userRole}/profile`,
             icon: UserIcon,

@@ -77,6 +77,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             customerId: a.customer_id, // Keep for backward compatibility
             agent_id: a.agent_id || null,
             agentId: a.agent_id || null, // Keep for backward compatibility
+            commercial_id: a.commercial_id || null,
+            commercialId: a.commercial_id || null, // Keep for backward compatibility
             show_id: a.show_id,
             showId: a.show_id, // Keep for backward compatibility
             customer_name: a.customer_name || a.customerName || a.name || null,

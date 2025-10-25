@@ -6,7 +6,9 @@ import {
   TvIcon, 
   ClockIcon,
   DocumentTextIcon,
-  UserIcon
+  UserIcon,
+  ChevronDownIcon,
+  ChevronRightIcon
 } from '@heroicons/react/24/outline'
 
 interface Advertisement {
@@ -21,6 +23,7 @@ interface Advertisement {
   cost: number
   description?: string
   status: string
+  contact_phone?: string
   // Customer info from JOIN
   customer_name?: string
   customer_email?: string
@@ -37,6 +40,17 @@ const AdSchedulePage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [selectedShow, setSelectedShow] = useState<string>('all')
   const [shows, setShows] = useState<any[]>([])
+  const [expandedShows, setExpandedShows] = useState<Set<string>>(new Set())
+
+  const toggleShow = (showName: string) => {
+    const newExpanded = new Set(expandedShows)
+    if (newExpanded.has(showName)) {
+      newExpanded.delete(showName)
+    } else {
+      newExpanded.add(showName)
+    }
+    setExpandedShows(newExpanded)
+  }
 
   useEffect(() => {
     loadShows()
@@ -248,13 +262,23 @@ const AdSchedulePage: React.FC = () => {
           <div className="space-y-6">
             {Object.entries(groupedAds).map(([showName, showAds]) => {
               const firstAd = showAds[0]
+              const isExpanded = expandedShows.has(showName)
+              
               return (
                 <div key={showName} className="bg-white rounded-lg shadow-sm border overflow-hidden">
-                  <div className="bg-gradient-to-r from-primary-50 to-primary-100 px-6 py-4 border-b">
+                  <button
+                    onClick={() => toggleShow(showName)}
+                    className="w-full bg-gradient-to-r from-primary-50 to-primary-100 px-6 py-4 border-b hover:from-primary-100 hover:to-primary-200 transition-colors"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">
+                        {isExpanded ? (
+                          <ChevronDownIcon className="h-5 w-5 text-primary-600" />
+                        ) : (
+                          <ChevronRightIcon className="h-5 w-5 text-primary-600" />
+                        )}
                         <TvIcon className="h-6 w-6 text-primary-600" />
-                        <div>
+                        <div className="text-left">
                           <h3 className="text-lg font-semibold text-gray-900">{showName}</h3>
                           <div className="flex items-center space-x-2 mt-1">
                             <span className="text-sm text-gray-600">{firstAd.time_slot}</span>
@@ -273,9 +297,10 @@ const AdSchedulePage: React.FC = () => {
                         </p>
                       </div>
                     </div>
-                  </div>
+                  </button>
                   
-                  <div className="divide-y divide-gray-200">
+                  {isExpanded && (
+                    <div className="divide-y divide-gray-200">
                     {showAds.map((ad, index) => (
                       <div key={ad.id} className="px-6 py-4 hover:bg-gray-50">
                         <div className="flex items-start justify-between">
@@ -313,7 +338,7 @@ const AdSchedulePage: React.FC = () => {
                               </div>
                               <div className="flex items-center space-x-1">
                                 <span>📞</span>
-                                <span>{ad.customer_phone || ad.phone || '—'}</span>
+                                <span>{ad.contact_phone || ad.customer_phone || ad.phone || '—'}</span>
                               </div>
                             </div>
                           </div>
@@ -332,7 +357,8 @@ const AdSchedulePage: React.FC = () => {
                         </div>
                       </div>
                     ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )
             })}

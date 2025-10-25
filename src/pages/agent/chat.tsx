@@ -6,7 +6,7 @@ import { useSelector } from 'react-redux'
 import { RootState } from '../../redux/store'
 import socketService from '../../utils/socket'
 import toast from 'react-hot-toast'
-import { XMarkIcon, PaperAirplaneIcon, EyeIcon, PencilIcon, XCircleIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon, PaperAirplaneIcon, EyeIcon, PencilIcon, XCircleIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 
 const AgentChatPage: React.FC = () => {
   const router = useRouter()
@@ -27,7 +27,8 @@ const AgentChatPage: React.FC = () => {
   const [sendingToCommercial, setSendingToCommercial] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [shows, setShows] = useState<any[]>([])
-  const itemsPerPage = 5
+  const [sendingContract, setSendingContract] = useState(false)
+  const itemsPerPage = 7
 
   // Helper to get status text in Russian
   const getStatusText = (status: string) => {
@@ -263,6 +264,78 @@ const AgentChatPage: React.FC = () => {
       toast.error('Ошибка при отмене заявки')
     } finally {
       setCancelling(false)
+    }
+  }
+
+  // Handle send contract
+  const handleSendContract = async () => {
+    if (!appId || !applicationData) return
+    
+    if (!confirm('Отправить договор клиенту?')) return
+    
+    setSendingContract(true)
+    try {
+      // Check if contract already exists
+      const checkResponse = await fetch(`/api/contracts?customerId=${applicationData.customer_id}`, {
+        credentials: 'same-origin'
+      })
+      const existingContracts = await checkResponse.json()
+      const hasContract = existingContracts.some((c: any) => c.application_id === appId)
+      
+      if (hasContract) {
+        toast.error('Договор для этой заявки уже создан')
+        setSendingContract(false)
+        return
+      }
+
+      // Get show name from shows list or applicationData
+      let showName = applicationData.show_name || ''
+      if (!showName && applicationData.show_id) {
+        const show = shows.find(s => s.id === applicationData.show_id)
+        showName = show?.name || ''
+      }
+
+      // Create contract
+      const response = await fetch('/api/contracts', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          application_id: appId,
+          customer_id: applicationData.customer_id,
+          agent_id: user?.id,
+          show_name: showName,
+          scheduled_at: applicationData.scheduled_at,
+          duration_seconds: applicationData.duration_seconds,
+          cost: applicationData.cost,
+          customer_name: applicationData.customer_name || applicationData.customerName || '',
+          customer_email: applicationData.customer_email || '',
+          customer_phone: applicationData.customer_phone || applicationData.contact_phone || applicationData.phone || '',
+          description: applicationData.description || '',
+          company_name: 'ТВ Компания X'
+        })
+      })
+      
+      if (response.ok) {
+        const contract = await response.json()
+        toast.success(`Договор ${contract.contract_number} успешно отправлен клиенту`)
+        
+        // Send notification to customer via socket
+        socketService.emit('send_notification', {
+          userId: applicationData.customer_id,
+          type: 'contract_sent',
+          message: `Вам отправлен договор ${contract.contract_number}`,
+          data: { contractId: contract.id, applicationId: appId }
+        })
+      } else {
+        const error = await response.json()
+        toast.error(error.error || 'Ошибка при создании договора')
+      }
+    } catch (error) {
+      console.error('Error sending contract:', error)
+      toast.error('Ошибка при отправке договора')
+    } finally {
+      setSendingContract(false)
     }
   }
 
@@ -577,8 +650,8 @@ const AgentChatPage: React.FC = () => {
                     </div>
                   </div>
                   
-                  {/* Action Buttons */}
-                  {applicationData && applicationData.status === 'in_progress' && (
+                  {/* Action Buttons - show for in_progress and sent_to_commercial */}
+                  {applicationData && (applicationData.status === 'in_progress' || applicationData.status === 'sent_to_commercial') && (
                     <div className="flex items-center gap-1 mt-1">
                       <button
                         onClick={handleViewDetails}
@@ -596,15 +669,17 @@ const AgentChatPage: React.FC = () => {
                         <PencilIcon className="h-3 w-3" />
                         <span className="hidden sm:inline">Изменить</span>
                       </button>
-                      <button
-                        onClick={handleSendToCommercial}
-                        disabled={sendingToCommercial}
-                        className="flex-1 px-1.5 py-1 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 transition-colors flex items-center justify-center gap-0.5 disabled:opacity-50"
-                        title="В коммерческий отдел"
-                      >
-                        <PaperAirplaneIcon className="h-3 w-3" />
-                        <span className="hidden sm:inline">{sendingToCommercial ? '...' : 'В отдел'}</span>
-                      </button>
+                      {applicationData.status === 'in_progress' && (
+                        <button
+                          onClick={handleSendToCommercial}
+                          disabled={sendingToCommercial}
+                          className="flex-1 px-1.5 py-1 bg-purple-600 text-white rounded text-[10px] font-medium hover:bg-purple-700 transition-colors flex items-center justify-center gap-0.5 disabled:opacity-50"
+                          title="В коммерческий отдел"
+                        >
+                          <PaperAirplaneIcon className="h-3 w-3" />
+                          <span className="hidden sm:inline">{sendingToCommercial ? '...' : 'В отдел'}</span>
+                        </button>
+                      )}
                       <button
                         onClick={handleCancelApplication}
                         disabled={cancelling}
@@ -612,6 +687,29 @@ const AgentChatPage: React.FC = () => {
                         title="Отменить заявку"
                       >
                         <XCircleIcon className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                  
+                  {/* Send Contract Button - show only for approved applications */}
+                  {applicationData && applicationData.status === 'approved' && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <button
+                        onClick={handleViewDetails}
+                        className="flex-1 px-1.5 py-1 bg-white text-blue-700 border border-blue-200 rounded text-[10px] font-medium hover:bg-blue-50 transition-colors flex items-center justify-center gap-0.5"
+                        title="Посмотреть детали"
+                      >
+                        <EyeIcon className="h-3 w-3" />
+                        <span className="hidden sm:inline">Детали</span>
+                      </button>
+                      <button
+                        onClick={handleSendContract}
+                        disabled={sendingContract}
+                        className="flex-1 px-1.5 py-1 bg-green-600 text-white rounded text-[10px] font-medium hover:bg-green-700 transition-colors flex items-center justify-center gap-0.5 disabled:opacity-50"
+                        title="Отправить договор"
+                      >
+                        <DocumentTextIcon className="h-3 w-3" />
+                        <span className="hidden sm:inline">{sendingContract ? 'Отправка...' : 'Договор'}</span>
                       </button>
                     </div>
                   )}

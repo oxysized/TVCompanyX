@@ -26,6 +26,7 @@ interface Application {
   agentId: string
   agentName: string
   description?: string
+  commercial_id?: string | null
 }
 
 const CommercialApplicationsPage: React.FC = () => {
@@ -94,11 +95,22 @@ const CommercialApplicationsPage: React.FC = () => {
       })
       
       if (response.ok) {
+        const updatedApp = await response.json()
+        
+        // Update local state immediately to hide the "Take" button
+        setApplications(prevApps => 
+          prevApps.map(app => 
+            app.id === applicationId 
+              ? { ...app, commercial_id: updatedApp.commercial_id } 
+              : app
+          )
+        )
+        
         toast.success('Заявка принята в работу')
+        
         // Open chat with agent
-        const app = applications.find(a => a.id === applicationId)
-        if (app) {
-          openChat(app)
+        if (updatedApp) {
+          openChat(updatedApp)
         }
       } else {
         throw new Error('Failed to take application')
@@ -109,8 +121,9 @@ const CommercialApplicationsPage: React.FC = () => {
   }
 
   const openChat = (app: any) => {
-    // Navigate to application-chat page with full details and chat
-    router.push(`/commercial/application-chat?appId=${app.id}`)
+    // Navigate to main commercial chat page with proper room format
+    const roomId = `commercial-agent-${app.agent_id || app.agentId}-app-${app.id}`
+    router.push(`/commercial/chat?room=${encodeURIComponent(roomId)}`)
   }
 
   const viewDetails = (app: any) => {
@@ -262,13 +275,16 @@ const CommercialApplicationsPage: React.FC = () => {
                           <div className="flex items-center space-x-2">
                             {application.status === 'sent_to_commercial' && (
                               <>
-                                <button
-                                  onClick={() => handleTakeApplication(application.id)}
-                                  className="text-purple-600 hover:text-purple-900"
-                                  title="Принять в работу"
-                                >
-                                  <HandRaisedIcon className="h-5 w-5" />
-                                </button>
+                                {/* Show "Take" button only if not already taken by commercial */}
+                                {!application.commercial_id && (
+                                  <button
+                                    onClick={() => handleTakeApplication(application.id)}
+                                    className="text-purple-600 hover:text-purple-900"
+                                    title="Принять в работу"
+                                  >
+                                    <HandRaisedIcon className="h-5 w-5" />
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => handleApproveApplication(application.id)}
                                   className="text-green-600 hover:text-green-900"
