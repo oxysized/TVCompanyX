@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useSelector, useDispatch } from 'react-redux'
 import { RootState, AppDispatch } from '../../redux/store'
-import { addMessage, setActiveRoom, markRoomAsRead } from '../../redux/slices/chatSlice'
+import { addMessage, setActiveRoom, markRoomAsRead, addRoom } from '../../redux/slices/chatSlice'
 import { setTyping } from '../../redux/slices/chatSlice'
 import socketService from '../../utils/socket'
 import { PaperAirplaneIcon, PaperClipIcon } from '@heroicons/react/24/outline'
@@ -22,12 +22,28 @@ const Chat: React.FC<ChatProps> = ({ roomId, roomName, subtitle }) => {
   const [isTyping, setIsTyping] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [forwardingFile, setForwardingFile] = useState<string | null>(null) // ID сообщения которое пересылается
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout>()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const roomCreatedRef = useRef<Set<string>>(new Set())
 
   const currentRoom = rooms.find(room => room.id === roomId)
   const currentTyping = typing[roomId] || []
+
+  // Create room once if it doesn't exist
+  useEffect(() => {
+    if (roomId && !rooms.find(r => r.id === roomId) && !roomCreatedRef.current.has(roomId)) {
+      roomCreatedRef.current.add(roomId)
+      dispatch(addRoom({
+        id: roomId,
+        name: roomName,
+        participants: [],
+        messages: [],
+        unreadCount: 0
+      }))
+    }
+  }, [roomId, roomName, rooms, dispatch])
 
   useEffect(() => {
     if (roomId) {
@@ -42,6 +58,7 @@ const Chat: React.FC<ChatProps> = ({ roomId, roomName, subtitle }) => {
       }
     }
   }, [roomId, dispatch])
+
 
   useEffect(() => {
     scrollToBottom()
@@ -155,6 +172,55 @@ const Chat: React.FC<ChatProps> = ({ roomId, roomName, subtitle }) => {
     toast.success('Файл удален')
   }
 
+  // Forward file to commercial department
+  const handleForwardToCommercial = async (msg: any) => {
+    if (!msg.fileUrl || !user) return
+    
+    // Extract application ID from room ID
+    const appId = roomId.replace('application-', '')
+    if (!appId || appId === roomId) {
+      toast.error('Невозможно определить ID заявки')
+      return
+    }
+
+    setForwardingFile(msg.id)
+    try {
+      // Create commercial room ID
+      const commercialRoomId = `commercial-agent-${user.id}-app-${appId}`
+      
+      // Ensure commercial room exists in Redux
+      if (!rooms.find(r => r.id === commercialRoomId)) {
+        dispatch(addRoom({
+          id: commercialRoomId,
+          name: 'Коммерческий отдел',
+          participants: [],
+          messages: [],
+          unreadCount: 0
+        }))
+      }
+      
+      // Join commercial room if not already joined
+      socketService.joinRoom(commercialRoomId)
+      
+      // Send file message to commercial chat
+      const forwardMessage = `📎 Переслано от ${msg.senderName || 'клиента'}: ${msg.content || msg.fileName || 'Файл'}`
+      
+      socketService.sendMessage(commercialRoomId, forwardMessage, {
+        type: 'file',
+        fileName: msg.fileName,
+        fileUrl: msg.fileUrl,
+        fileSize: msg.fileSize
+      })
+      
+      toast.success('Файл отправлен в коммерческий отдел')
+    } catch (error) {
+      console.error('Error forwarding file:', error)
+      toast.error('Ошибка при отправке файла')
+    } finally {
+      setForwardingFile(null)
+    }
+  }
+
   const formatTime = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('ru-RU', {
       hour: '2-digit',
@@ -204,15 +270,15 @@ const Chat: React.FC<ChatProps> = ({ roomId, roomName, subtitle }) => {
   const messageGroups = groupMessagesByDate(currentRoom.messages)
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-white max-h-full overflow-hidden">
       {/* Chat Header */}
-      <div className="flex items-center justify-between p-4 border-b border-secondary-200">
-        <div>
-          <h3 className="text-lg font-semibold text-secondary-900">{roomName}</h3>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-secondary-200 flex-shrink-0">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-secondary-900 truncate">{roomName}</h3>
           {subtitle ? (
-            <p className="text-sm text-secondary-600">{subtitle}</p>
+            <p className="text-xs text-secondary-600 truncate">{subtitle}</p>
           ) : (
-            <p className="text-sm text-secondary-600">
+            <p className="text-xs text-secondary-600">
               {currentRoom.participants.length} участников
             </p>
           )}
@@ -220,11 +286,11 @@ const Chat: React.FC<ChatProps> = ({ roomId, roomName, subtitle }) => {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
         {Object.entries(messageGroups).map(([date, messages]) => (
           <div key={date}>
-            <div className="flex items-center justify-center my-4">
-              <div className="bg-secondary-100 px-3 py-1 rounded-full text-sm text-secondary-600">
+            <div className="flex items-center justify-center my-2">
+              <div className="bg-secondary-100 px-2 py-0.5 rounded-full text-xs text-secondary-600">
                 {date}
               </div>
             </div>
@@ -232,10 +298,10 @@ const Chat: React.FC<ChatProps> = ({ roomId, roomName, subtitle }) => {
             {messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}
+                className={`flex mb-2 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                  className={`max-w-xs lg:max-w-md px-3 py-2 rounded-lg ${
                     msg.senderId === user?.id
                       ? 'bg-primary-600 text-white'
                       : 'bg-secondary-100 text-secondary-900'
@@ -274,6 +340,40 @@ const Chat: React.FC<ChatProps> = ({ roomId, roomName, subtitle }) => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
                       </a>
+                      
+                      {/* Forward to commercial button - only for agent in customer chat */}
+                      {user?.role === 'agent' && roomId.startsWith('application-') && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            handleForwardToCommercial(msg)
+                          }}
+                          disabled={forwardingFile === msg.id}
+                          className={`mt-1 w-full flex items-center justify-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                            msg.senderId === user?.id
+                              ? 'bg-primary-800 hover:bg-primary-900 text-white disabled:opacity-50'
+                              : 'bg-purple-100 hover:bg-purple-200 text-purple-700 disabled:opacity-50'
+                          }`}
+                          title="Переслать в коммерческий отдел"
+                        >
+                          {forwardingFile === msg.id ? (
+                            <>
+                              <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <span>Отправка...</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              </svg>
+                              <span>В коммерческий отдел</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   )}
                   
@@ -312,7 +412,7 @@ const Chat: React.FC<ChatProps> = ({ roomId, roomName, subtitle }) => {
       </div>
 
       {/* Message Input */}
-      <div className="border-t border-secondary-200 p-4">
+      <div className="border-t border-secondary-200 p-3 flex-shrink-0">
         {/* Attached File Preview */}
         {selectedFile && (
           <div className="mb-2 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-md p-2">

@@ -139,12 +139,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (!application.agent_id) return res.status(400).json({ error: 'No agent assigned to this application' })
         
         // Update commercial_id to mark that commercial has taken the application
+        // Need to update in all possible tables since we don't know which one has the record
         try {
           await pool.query(
             'UPDATE applications SET commercial_id = $1 WHERE id = $2',
             [userId, id]
           )
-          console.log('[API] Set commercial_id to', userId, 'for application', id)
+          await pool.query(
+            'UPDATE pending_applications SET commercial_id = $1 WHERE id = $2',
+            [userId, id]
+          )
+          await pool.query(
+            'UPDATE approved_applications SET commercial_id = $1 WHERE id = $2',
+            [userId, id]
+          )
+          await pool.query(
+            'UPDATE rejected_applications SET commercial_id = $1 WHERE id = $2',
+            [userId, id]
+          )
+          console.log('[API] Set commercial_id to', userId, 'for application', id, 'in all tables')
         } catch (err) {
           console.error('[API] Failed to update commercial_id:', err)
         }
@@ -225,9 +238,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           })
           
           socket.on('connect', () => {
+            console.log('[API] Broadcasting application:updated with commercial_id:', userId)
             socket.emit('application:updated', {
               applicationId: id,
-              commercial_id: userId
+              commercial_id: userId,
+              status: application.status,
+              updatedField: 'commercial_id'
             })
             setTimeout(() => socket.disconnect(), 300)
           })
